@@ -105,7 +105,12 @@ class BrowserManager:
         elif action == "navigate":
             url = params.get("url")
             if url:
-                await self.page.goto(url)
+                if not url.startswith(('http://', 'https://')):
+                    url = 'https://' + url
+                try:
+                    await self.page.goto(url)
+                except Exception as e:
+                    logger.error(f"Navigation failed: {e}")
 
 # Singleton instance
 browser_manager = BrowserManager()
