@@ -1,16 +1,40 @@
-
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>RemoBrowser</title>
     <style>
-        body { font-family: sans-serif; background: #222; color: #fff; text-align: center; }
-        #controls { margin: 10px; padding: 10px; background: #333; }
-        video { background: #000; max-width: 100%; box-shadow: 0 0 20px #000; }
-        input { padding: 5px; width: 300px; }
-        button { padding: 5px 10px; cursor: pointer; }
+        body {
+            font-family: sans-serif;
+            background: #222;
+            color: #fff;
+            text-align: center;
+        }
+
+        #controls {
+            margin: 10px;
+            padding: 10px;
+            background: #333;
+        }
+
+        video {
+            background: #000;
+            max-width: 100%;
+            box-shadow: 0 0 20px #000;
+        }
+
+        input {
+            padding: 5px;
+            width: 300px;
+        }
+
+        button {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
+
 <body>
     <div id="controls">
         <button onclick="startBrowser()">Start Browser</button>
@@ -19,7 +43,7 @@
         <button onclick="navigate()">Go</button>
         <button onclick="startStream()">Connect Stream</button>
     </div>
-    
+
     <div id="video-container">
         <video id="remote-video" autoplay playsinline></video>
     </div>
@@ -42,12 +66,12 @@
             const url = document.getElementById('urlInput').value;
             await fetch('/navigate', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({url})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
             });
             // Also send via DC if connected
             if (dc && dc.readyState === 'open') {
-                dc.send(JSON.stringify({action: 'navigate', url}));
+                dc.send(JSON.stringify({ action: 'navigate', url }));
             }
         }
 
@@ -65,6 +89,10 @@
                 }
             };
 
+            // Essential: Tell the browser we want to receive video, 
+            // otherwise the offer won't contain a video m-line, confusing aiortc.
+            pc.addTransceiver('video', { direction: 'recvonly' });
+
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
@@ -74,7 +102,7 @@
             // aiortc often works with just the offer immediately if on localhost/same net.
             // Let's modify to wait for ice gathering complete if needed, 
             // but standard is send offer, get answer.
-            
+
             await new Promise(resolve => {
                 if (pc.iceGatheringState === 'complete') resolve();
                 else {
@@ -86,7 +114,7 @@
                     };
                     pc.addEventListener('icegatheringstatechange', checkState);
                     // Timeout fallback
-                    setTimeout(resolve, 1000); 
+                    setTimeout(resolve, 1000);
                 }
             });
 
@@ -106,7 +134,7 @@
         // Input Handling
         function sendInput(action, params) {
             if (dc && dc.readyState === 'open') {
-                dc.send(JSON.stringify({action, ...params}));
+                dc.send(JSON.stringify({ action, ...params }));
             }
         }
 
@@ -115,11 +143,11 @@
             // Calculate scale
             const scaleX = video.videoWidth / rect.width;
             const scaleY = video.videoHeight / rect.height;
-            
+
             const x = (e.clientX - rect.left) * scaleX;
             const y = (e.clientY - rect.top) * scaleY;
-            
-            sendInput('mousemove', {x, y});
+
+            sendInput('mousemove', { x, y });
         });
 
         video.addEventListener('click', (e) => {
@@ -127,18 +155,19 @@
             // Calculate scale
             const scaleX = video.videoWidth / rect.width;
             const scaleY = video.videoHeight / rect.height;
-            
+
             const x = (e.clientX - rect.left) * scaleX;
             const y = (e.clientY - rect.top) * scaleY;
-            
-            sendInput('click', {x, y});
+
+            sendInput('click', { x, y });
         });
 
         window.addEventListener('keydown', (e) => {
             if (document.activeElement === document.getElementById('urlInput')) return;
-            sendInput('keypress', {key: e.key});
+            sendInput('keypress', { key: e.key });
         });
 
     </script>
 </body>
+
 </html>
