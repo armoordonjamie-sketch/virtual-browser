@@ -83,7 +83,10 @@ class RTCManager:
         async def on_connectionstatechange():
             logger.info(f"Connection state is {pc.connectionState}")
             if pc.connectionState in ["failed", "closed"]:
-                await pc.close()
+                try:
+                    await pc.close()
+                except Exception:
+                    pass
                 self.pcs.discard(pc)
 
         @pc.on("datachannel")
