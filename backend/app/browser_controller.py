@@ -12,16 +12,23 @@ class BrowserManager:
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
-        self.last_frame: Optional[bytes] = None
-        self.frame_callback: Optional[Callable[[bytes], Awaitable[None]]] = None
+        self.listeners = set()
         self._cdp_client = None
+
+    async def add_listener(self):
+        queue = asyncio.Queue(maxsize=1)
+        self.listeners.add(queue)
+        return queue
+
+    async def remove_listener(self, queue):
+        self.listeners.discard(queue)
 
     async def start(self, headless: bool = True):
         logger.info(f"Starting browser (headless={headless})...")
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=headless,
-            args=['--no-sandbox', '--disable-setuid-sandbox']
+            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'] # disable-gpu might help stability
         )
         self.context = await self.browser.new_context(
             viewport={'width': 1920, 'height': 1080}
@@ -33,9 +40,12 @@ class BrowserManager:
         self._cdp_client = await self.context.new_cdp_session(self.page)
         self._cdp_client.on("Page.screencastFrame", self._on_screencast_frame)
         
+        # Optimize for performance: slightly lower JPEG quality, but higher max buffer?
+        # Actually CDP caps us around 30fps usually. 
+        # lowering quality to 70 might help transfer speed.
         await self._cdp_client.send(
             "Page.startScreencast", 
-            {"format": "jpeg", "quality": 85, "maxWidth": 1920, "maxHeight": 1080}
+            {"format": "jpeg", "quality": 70, "maxWidth": 1920, "maxHeight": 1080, "everyNthFrame": 1}
         )
         logger.info("Browser started and screencast active.")
 
@@ -46,8 +56,17 @@ class BrowserManager:
         # data is base64 encoded string
         if data:
             self.last_frame = base64.b64decode(data)
-            if self.frame_callback:
-                asyncio.create_task(self.frame_callback(self.last_frame))
+            # Broadcast to all listeners
+            for queue in list(self.listeners):
+                if queue.full():
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                try:
+                    queue.put_nowait(self.last_frame)
+                except asyncio.QueueFull:
+                    pass
 
         # Acknowledge the frame to keep the stream coming
         try:

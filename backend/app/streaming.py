@@ -16,58 +16,52 @@ class BrowserVideoTrack(VideoStreamTrack):
     """
     def __init__(self):
         super().__init__()
-        self.queue = asyncio.Queue(maxsize=1)
+        self.queue = None
         self._ended = False
-        
-        # Register callback
-        # Note: This simple implementation supports only ONE track effectively 
-        # controlling the callback. For multi-user, we'd need a broadcasting mechanism.
-        async def on_frame(frame_bytes):
-            # Drop older frames if queue is full to reduce latency
-            if self.queue.full():
-                try:
-                    self.queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-            await self.queue.put(frame_bytes)
-            
-        browser_manager.frame_callback = on_frame
+        self._setup_lock = asyncio.Lock()
+
+    async def _ensure_queue(self):
+        async with self._setup_lock:
+            if self.queue is None and not self._ended:
+                self.queue = await browser_manager.add_listener()
 
     async def recv(self):
         if self._ended:
             return None
+        
+        if self.queue is None:
+            await self._ensure_queue()
             
         pts, time_base = await self.next_timestamp()
         
         try:
             # Wait for next frame from browser
-            jpeg_bytes = await self.queue.get()
-            
-            # Decode JPEG
-            # Optimize: Keep container open or use lighter decoder if possible
-            # But for MVP, re-opening I/O is robust.
-            container = av.open(io.BytesIO(jpeg_bytes))
-            try:
-                # Video stream is stream 0
-                frames = list(container.decode(video=0))
-                if frames:
-                    frame = frames[0]
-                    frame.pts = pts
-                    frame.time_base = time_base
-                    return frame
-            finally:
-                container.close()
+            if self.queue:
+                jpeg_bytes = await self.queue.get()
+                
+                # Decode JPEG
+                container = av.open(io.BytesIO(jpeg_bytes))
+                try:
+                    frames = list(container.decode(video=0))
+                    if frames:
+                        frame = frames[0]
+                        frame.pts = pts
+                        frame.time_base = time_base
+                        return frame
+                finally:
+                    container.close()
                 
         except Exception as e:
             logger.error(f"Frame processing error: {e}")
-            # Return a momentary blank frame or retry logic could go here
             pass
             
         return None
 
     def on_ended(self):
         self._ended = True
-        browser_manager.frame_callback = None
+        if self.queue:
+            asyncio.create_task(browser_manager.remove_listener(self.queue))
+            self.queue = None
 
 class RTCManager:
     def __init__(self):

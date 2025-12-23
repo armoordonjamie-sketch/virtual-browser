@@ -68,3 +68,48 @@ async def navigate(request: Request, username: str = Depends(verify_credentials)
     if url:
         await browser_manager.handle_input("navigate", {"url": url})
     return {"status": "navigated"}
+
+from fastapi import WebSocket, WebSocketDisconnect
+import json
+import asyncio
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    queue = await browser_manager.add_listener()
+    
+    async def send_frames():
+        while True:
+            frame = await queue.get()
+            try:
+                # Send binary frame
+                await websocket.send_bytes(frame)
+            except Exception:
+                break
+                
+    async def receive_inputs():
+        while True:
+            try:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                action = message.get("action")
+                if action:
+                    await browser_manager.handle_input(action, message)
+            except Exception:
+                break
+
+    sender_task = asyncio.create_task(send_frames())
+    receiver_task = asyncio.create_task(receive_inputs())
+    
+    try:
+        await asyncio.gather(sender_task, receiver_task)
+    except Exception:
+        pass
+    finally:
+        sender_task.cancel()
+        receiver_task.cancel()
+        await browser_manager.remove_listener(queue)
+        try:
+            await websocket.close()
+        except:
+            pass
