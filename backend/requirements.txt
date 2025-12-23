@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+playwright
+aiortc
+python-multipart
+python-dotenv
+jinja2
+av
+numpy

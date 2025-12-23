@@ -1,0 +1,144 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RemoBrowser</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: #fff; text-align: center; }
+        #controls { margin: 10px; padding: 10px; background: #333; }
+        video { background: #000; max-width: 100%; box-shadow: 0 0 20px #000; }
+        input { padding: 5px; width: 300px; }
+        button { padding: 5px 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button onclick="startBrowser()">Start Browser</button>
+        <button onclick="stopBrowser()">Stop Browser</button>
+        <input type="text" id="urlInput" placeholder="https://google.com" />
+        <button onclick="navigate()">Go</button>
+        <button onclick="startStream()">Connect Stream</button>
+    </div>
+    
+    <div id="video-container">
+        <video id="remote-video" autoplay playsinline></video>
+    </div>
+
+    <script>
+        let pc = null;
+        let dc = null;
+        const video = document.getElementById('remote-video');
+
+        async function startBrowser() {
+            await fetch('/start', { method: 'POST' });
+        }
+
+        async function stopBrowser() {
+            await fetch('/stop', { method: 'POST' });
+            if (pc) pc.close();
+        }
+
+        async function navigate() {
+            const url = document.getElementById('urlInput').value;
+            await fetch('/navigate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url})
+            });
+            // Also send via DC if connected
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify({action: 'navigate', url}));
+            }
+        }
+
+        async function startStream() {
+            pc = new RTCPeerConnection();
+
+            // Create Data Channel for control
+            dc = pc.createDataChannel("control");
+            dc.onopen = () => console.log("Data channel open");
+            dc.onmessage = (e) => console.log("DC message:", e.data);
+
+            pc.ontrack = (evt) => {
+                if (evt.track.kind === 'video') {
+                    video.srcObject = evt.streams[0];
+                }
+            };
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            // Wait for ICE gathering to complete? 
+            // aiortc usually handles vanilla SDP well, but trickle ICE is better. 
+            // For simplicity, we send after gathering or just send offer.
+            // aiortc often works with just the offer immediately if on localhost/same net.
+            // Let's modify to wait for ice gathering complete if needed, 
+            // but standard is send offer, get answer.
+            
+            await new Promise(resolve => {
+                if (pc.iceGatheringState === 'complete') resolve();
+                else {
+                    const checkState = () => {
+                        if (pc.iceGatheringState === 'complete') {
+                            pc.removeEventListener('icegatheringstatechange', checkState);
+                            resolve();
+                        }
+                    };
+                    pc.addEventListener('icegatheringstatechange', checkState);
+                    // Timeout fallback
+                    setTimeout(resolve, 1000); 
+                }
+            });
+
+            const response = await fetch('/offer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sdp: pc.localDescription.sdp,
+                    type: pc.localDescription.type
+                })
+            });
+
+            const answer = await response.json();
+            await pc.setRemoteDescription(answer);
+        }
+
+        // Input Handling
+        function sendInput(action, params) {
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify({action, ...params}));
+            }
+        }
+
+        video.addEventListener('mousemove', (e) => {
+            const rect = video.getBoundingClientRect();
+            // Calculate scale
+            const scaleX = video.videoWidth / rect.width;
+            const scaleY = video.videoHeight / rect.height;
+            
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            
+            sendInput('mousemove', {x, y});
+        });
+
+        video.addEventListener('click', (e) => {
+            const rect = video.getBoundingClientRect();
+            // Calculate scale
+            const scaleX = video.videoWidth / rect.width;
+            const scaleY = video.videoHeight / rect.height;
+            
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            
+            sendInput('click', {x, y});
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement === document.getElementById('urlInput')) return;
+            sendInput('keypress', {key: e.key});
+        });
+
+    </script>
+</body>
+</html>
