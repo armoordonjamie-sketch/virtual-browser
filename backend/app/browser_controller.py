@@ -1,4 +1,3 @@
-
 import asyncio
 import base64
 import logging
@@ -20,27 +19,23 @@ class BrowserManager:
     async def start(self, headless: bool = True):
         logger.info(f"Starting browser (headless={headless})...")
         self.playwright = await async_playwright().start()
-        # Launch Chromium. Add args for container/linux env if needed
         self.browser = await self.playwright.chromium.launch(
             headless=headless,
             args=['--no-sandbox', '--disable-setuid-sandbox']
         )
         self.context = await self.browser.new_context(
-            viewport={'width': 1280, 'height': 720}
+            viewport={'width': 1920, 'height': 1080}
         )
         self.page = await self.context.new_page()
         
-        # Go to a default page
-        await self.page.goto("https://www.google.com")
+        await self.page.goto("https://chatgpt.com/chat")
         
-        # Start CDP session for screencast
         self._cdp_client = await self.context.new_cdp_session(self.page)
         self._cdp_client.on("Page.screencastFrame", self._on_screencast_frame)
         
-        # Start screencast
         await self._cdp_client.send(
             "Page.startScreencast", 
-            {"format": "jpeg", "quality": 80, "maxWidth": 1280, "maxHeight": 720}
+            {"format": "jpeg", "quality": 85, "maxWidth": 1920, "maxHeight": 1080}
         )
         logger.info("Browser started and screencast active.")
 
@@ -83,6 +78,45 @@ class BrowserManager:
             if x is not None and y is not None:
                 await self.page.mouse.click(x, y)
         
+        elif action == "dblclick":
+            x, y = params.get("x"), params.get("y")
+            if x is not None and y is not None:
+                await self.page.mouse.dblclick(x, y)
+        
+        elif action == "rightclick":
+            x, y = params.get("x"), params.get("y")
+            if x is not None and y is not None:
+                await self.page.mouse.click(x, y, button="right")
+        
+        elif action == "scroll":
+            x, y = params.get("x"), params.get("y")
+            deltaX = params.get("deltaX", 0)
+            deltaY = params.get("deltaY", 0)
+            if x is not None and y is not None:
+                await self.page.mouse.move(x, y)
+                await self.page.mouse.wheel(deltaX, deltaY)
+        
+        elif action == "keydown":
+            key = params.get("key")
+            if key:
+                # Handle modifier combinations
+                modifiers = []
+                if params.get("ctrlKey"):
+                    modifiers.append("Control")
+                if params.get("shiftKey"):
+                    modifiers.append("Shift")
+                if params.get("altKey"):
+                    modifiers.append("Alt")
+                if params.get("metaKey"):
+                    modifiers.append("Meta")
+                
+                if modifiers and key not in ["Control", "Shift", "Alt", "Meta"]:
+                    # Press with modifiers
+                    combo = "+".join(modifiers + [key])
+                    await self.page.keyboard.press(combo)
+                else:
+                    await self.page.keyboard.press(key)
+        
         elif action == "keypress":
             key = params.get("key")
             if key:
@@ -93,14 +127,29 @@ class BrowserManager:
             if text:
                 await self.page.keyboard.type(text)
         
+        elif action == "back":
+            try:
+                await self.page.go_back()
+            except Exception as e:
+                logger.error(f"Back navigation failed: {e}")
+        
+        elif action == "forward":
+            try:
+                await self.page.go_forward()
+            except Exception as e:
+                logger.error(f"Forward navigation failed: {e}")
+        
+        elif action == "reload":
+            try:
+                await self.page.reload()
+            except Exception as e:
+                logger.error(f"Reload failed: {e}")
+        
         elif action == "resize":
              width = params.get("width")
              height = params.get("height")
              if width and height:
                  await self.page.set_viewport_size({"width": int(width), "height": int(height)})
-                 # Restart screencast with new dims might be needed, or just update viewport
-                 # CDP spec says startScreencast might need re-triggering for prop updates?
-                 # Actually viewport change usually triggers new frames naturally.
         
         elif action == "navigate":
             url = params.get("url")

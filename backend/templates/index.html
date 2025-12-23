@@ -1,110 +1,615 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <title>RemoBrowser</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeVPN Browser</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #141417;
+            --bg-tertiary: #1c1c21;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --border: #27272a;
+            --success: #22c55e;
+            --warning: #eab308;
+            --error: #ef4444;
+        }
+
         body {
-            font-family: sans-serif;
-            background: #222;
-            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Loading overlay */
+        #loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+
+        #loading-overlay.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .loader {
+            width: 48px;
+            height: 48px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .loading-status {
+            margin-top: 8px;
+            color: var(--text-muted);
+            font-size: 12px;
+            max-width: 300px;
             text-align: center;
         }
 
-        #controls {
-            margin: 10px;
-            padding: 10px;
-            background: #333;
+        /* Main container */
+        #app {
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-primary);
         }
 
-        video {
-            background: #000;
-            max-width: 100%;
-            box-shadow: 0 0 20px #000;
+        /* Control bar */
+        #control-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 52px;
+            background: rgba(20, 20, 23, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 12px;
+            z-index: 100;
+            transform: translateY(0);
+            transition: transform 0.3s ease, opacity 0.3s ease;
         }
 
-        input {
-            padding: 5px;
-            width: 300px;
+        #control-bar.auto-hide {
+            transform: translateY(-100%);
+            opacity: 0;
         }
 
-        button {
-            padding: 5px 10px;
+        #control-bar:hover,
+        #control-bar.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Status indicator */
+        .status-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-right: 12px;
+            border-right: 1px solid var(--border);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: background 0.3s ease;
+        }
+
+        .status-dot.connecting {
+            background: var(--warning);
+            animation: pulse 1.5s ease infinite;
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+        }
+
+        .status-dot.error {
+            background: var(--error);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* URL bar */
+        .url-group {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 700px;
+        }
+
+        .nav-btn {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
             cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .nav-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .nav-btn:active {
+            transform: scale(0.95);
+        }
+
+        .nav-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .url-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        #urlInput {
+            width: 100%;
+            height: 36px;
+            padding: 0 12px 0 36px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        #urlInput:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+
+        #urlInput::placeholder {
+            color: var(--text-muted);
+        }
+
+        .url-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .url-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Action buttons */
+        .action-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .action-btn {
+            height: 32px;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .action-btn.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .action-btn.primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .action-btn.danger {
+            color: var(--error);
+        }
+
+        .action-btn.danger:hover {
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .action-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* Video container */
+        #video-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            padding-top: 52px;
+            cursor: default;
+        }
+
+        #video-container.fullscreen {
+            padding-top: 0;
+        }
+
+        #remote-video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: fixed;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: all 0.2s ease;
+            z-index: 1000;
+        }
+
+        .tooltip.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Keyboard hint */
+        .kbd {
+            display: inline-block;
+            padding: 2px 6px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Toast notifications */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 1000;
+        }
+
+        .toast {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--text-primary);
+            transform: translateX(100%);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .toast.error {
+            border-color: var(--error);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .toast.success {
+            border-color: var(--success);
+            background: rgba(34, 197, 94, 0.1);
         }
     </style>
 </head>
 
 <body>
-    <div id="controls">
-        <button onclick="startBrowser()">Start Browser</button>
-        <button onclick="stopBrowser()">Stop Browser</button>
-        <input type="text" id="urlInput" placeholder="https://google.com" />
-        <button onclick="navigate()">Go</button>
-        <button onclick="startStream()">Connect Stream</button>
+    <!-- Loading overlay -->
+    <div id="loading-overlay">
+        <div class="loader"></div>
+        <div class="loading-text">Initializing Virtual Browser</div>
+        <div class="loading-status" id="loading-status">Starting browser engine...</div>
     </div>
 
-    <div id="video-container">
-        <video id="remote-video" autoplay playsinline></video>
+    <div id="app">
+        <!-- Control bar -->
+        <div id="control-bar">
+            <div class="status-group">
+                <div class="status-dot" id="status-dot"></div>
+                <span class="status-text" id="status-text">Disconnected</span>
+            </div>
+
+            <div class="url-group">
+                <button class="nav-btn" onclick="goBack()" title="Go back">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <button class="nav-btn" onclick="goForward()" title="Go forward">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+                <button class="nav-btn" onclick="reload()" title="Reload">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </button>
+                <div class="url-input-wrapper">
+                    <span class="url-icon">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                        </svg>
+                    </span>
+                    <input type="text" id="urlInput" placeholder="Enter URL or search..." value="https://chatgpt.com/chat" />
+                </div>
+                <button class="nav-btn" onclick="navigate()" title="Go">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="action-group">
+                <button class="action-btn" onclick="toggleFullscreen()" title="Toggle fullscreen (F11)">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" id="fullscreen-icon">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                    </svg>
+                </button>
+                <button class="action-btn danger" onclick="stopBrowser()" title="Stop browser">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    Stop
+                </button>
+            </div>
+        </div>
+
+        <!-- Video container -->
+        <div id="video-container">
+            <video id="remote-video" autoplay playsinline></video>
+        </div>
     </div>
+
+    <!-- Toast container -->
+    <div id="toast-container"></div>
 
     <script>
         let pc = null;
         let dc = null;
         const video = document.getElementById('remote-video');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingStatus = document.getElementById('loading-status');
+        const controlBar = document.getElementById('control-bar');
+        const videoContainer = document.getElementById('video-container');
 
+        let isFullscreen = false;
+        let hideControlBarTimeout = null;
+
+        // Status management
+        function setStatus(status, text) {
+            statusDot.className = 'status-dot ' + status;
+            statusText.textContent = text;
+        }
+
+        function setLoadingStatus(text) {
+            loadingStatus.textContent = text;
+        }
+
+        // Toast notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            toast.textContent = message;
+            container.appendChild(toast);
+            
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Browser controls
         async function startBrowser() {
-            await fetch('/start', { method: 'POST' });
-        }
-
-        async function stopBrowser() {
-            await fetch('/stop', { method: 'POST' });
-            if (pc) pc.close();
-        }
-
-        async function navigate() {
-            const url = document.getElementById('urlInput').value;
-            await fetch('/navigate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
-            });
-            // Also send via DC if connected
-            if (dc && dc.readyState === 'open') {
-                dc.send(JSON.stringify({ action: 'navigate', url }));
+            setLoadingStatus('Starting browser engine...');
+            try {
+                const response = await fetch('/start', { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to start browser');
+                return true;
+            } catch (e) {
+                showToast('Failed to start browser: ' + e.message, 'error');
+                return false;
             }
         }
 
+        async function stopBrowser() {
+            try {
+                await fetch('/stop', { method: 'POST' });
+                if (pc) pc.close();
+                setStatus('', 'Disconnected');
+                showToast('Browser stopped', 'info');
+            } catch (e) {
+                showToast('Error stopping browser', 'error');
+            }
+        }
+
+        async function navigate() {
+            let url = document.getElementById('urlInput').value.trim();
+            if (!url) return;
+            
+            // Add protocol if missing
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+                document.getElementById('urlInput').value = url;
+            }
+
+            try {
+                await fetch('/navigate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                if (dc && dc.readyState === 'open') {
+                    dc.send(JSON.stringify({ action: 'navigate', url }));
+                }
+            } catch (e) {
+                showToast('Navigation failed', 'error');
+            }
+        }
+
+        async function goBack() {
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify({ action: 'back' }));
+            }
+        }
+
+        async function goForward() {
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify({ action: 'forward' }));
+            }
+        }
+
+        async function reload() {
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify({ action: 'reload' }));
+            }
+        }
+
+        // WebRTC stream
         async function startStream() {
+            setStatus('connecting', 'Connecting...');
+            setLoadingStatus('Establishing WebRTC connection...');
+
             const config = {
                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             };
             pc = new RTCPeerConnection(config);
 
-            // Create Data Channel for control
             dc = pc.createDataChannel("control");
-            dc.onopen = () => console.log("Data channel open");
+            dc.onopen = () => {
+                console.log("Data channel open");
+                setStatus('connected', 'Connected');
+                showToast('Connected to virtual browser', 'success');
+            };
+            dc.onclose = () => {
+                setStatus('', 'Disconnected');
+            };
+            dc.onerror = (e) => {
+                console.error("Data channel error:", e);
+                setStatus('error', 'Connection Error');
+            };
             dc.onmessage = (e) => console.log("DC message:", e.data);
 
             pc.ontrack = (evt) => {
                 if (evt.track.kind === 'video') {
                     video.srcObject = evt.streams[0];
+                    setLoadingStatus('Video stream connected!');
+                    setTimeout(() => {
+                        loadingOverlay.classList.add('hidden');
+                    }, 500);
                 }
             };
 
-            // Essential: Tell the browser we want to receive video, 
-            // otherwise the offer won't contain a video m-line, confusing aiortc.
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'failed') {
+                    setStatus('error', 'Connection Failed');
+                    showToast('Connection failed', 'error');
+                }
+            };
+
             pc.addTransceiver('video', { direction: 'recvonly' });
 
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
-            // Wait for ICE gathering to complete? 
-            // aiortc usually handles vanilla SDP well, but trickle ICE is better. 
-            // For simplicity, we send after gathering or just send offer.
-            // aiortc often works with just the offer immediately if on localhost/same net.
-            // Let's modify to wait for ice gathering complete if needed, 
-            // but standard is send offer, get answer.
+            setLoadingStatus('Gathering ICE candidates...');
 
             await new Promise(resolve => {
                 if (pc.iceGatheringState === 'complete') resolve();
@@ -116,60 +621,155 @@
                         }
                     };
                     pc.addEventListener('icegatheringstatechange', checkState);
-                    // Timeout fallback
-                    setTimeout(resolve, 1000);
+                    setTimeout(resolve, 2000);
                 }
             });
 
-            const response = await fetch('/offer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sdp: pc.localDescription.sdp,
-                    type: pc.localDescription.type
-                })
-            });
+            setLoadingStatus('Connecting to stream...');
 
-            const answer = await response.json();
-            await pc.setRemoteDescription(answer);
+            try {
+                const response = await fetch('/offer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sdp: pc.localDescription.sdp,
+                        type: pc.localDescription.type
+                    })
+                });
+
+                const answer = await response.json();
+                await pc.setRemoteDescription(answer);
+            } catch (e) {
+                setStatus('error', 'Connection Failed');
+                showToast('Failed to connect to stream', 'error');
+                loadingOverlay.classList.add('hidden');
+            }
         }
 
-        // Input Handling
+        // Input handling
         function sendInput(action, params) {
             if (dc && dc.readyState === 'open') {
                 dc.send(JSON.stringify({ action, ...params }));
             }
         }
 
-        video.addEventListener('mousemove', (e) => {
+        function getScaledCoords(e) {
             const rect = video.getBoundingClientRect();
-            // Calculate scale
             const scaleX = video.videoWidth / rect.width;
             const scaleY = video.videoHeight / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
 
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-
+        video.addEventListener('mousemove', (e) => {
+            const { x, y } = getScaledCoords(e);
             sendInput('mousemove', { x, y });
         });
 
         video.addEventListener('click', (e) => {
-            const rect = video.getBoundingClientRect();
-            // Calculate scale
-            const scaleX = video.videoWidth / rect.width;
-            const scaleY = video.videoHeight / rect.height;
-
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-
+            const { x, y } = getScaledCoords(e);
             sendInput('click', { x, y });
         });
 
-        window.addEventListener('keydown', (e) => {
-            if (document.activeElement === document.getElementById('urlInput')) return;
-            sendInput('keypress', { key: e.key });
+        video.addEventListener('dblclick', (e) => {
+            const { x, y } = getScaledCoords(e);
+            sendInput('dblclick', { x, y });
         });
 
+        video.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const { x, y } = getScaledCoords(e);
+            sendInput('rightclick', { x, y });
+        });
+
+        video.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const { x, y } = getScaledCoords(e);
+            sendInput('scroll', { x, y, deltaX: e.deltaX, deltaY: e.deltaY });
+        }, { passive: false });
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement === document.getElementById('urlInput')) {
+                if (e.key === 'Enter') {
+                    navigate();
+                    document.getElementById('urlInput').blur();
+                }
+                return;
+            }
+            
+            // Handle F11 for fullscreen
+            if (e.key === 'F11') {
+                e.preventDefault();
+                toggleFullscreen();
+                return;
+            }
+
+            sendInput('keydown', { 
+                key: e.key, 
+                code: e.code,
+                ctrlKey: e.ctrlKey,
+                shiftKey: e.shiftKey,
+                altKey: e.altKey,
+                metaKey: e.metaKey
+            });
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (document.activeElement === document.getElementById('urlInput')) return;
+            sendInput('keyup', { key: e.key, code: e.code });
+        });
+
+        // Fullscreen handling
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            isFullscreen = !!document.fullscreenElement;
+            videoContainer.classList.toggle('fullscreen', isFullscreen);
+            
+            if (isFullscreen) {
+                controlBar.classList.add('auto-hide');
+            } else {
+                controlBar.classList.remove('auto-hide');
+            }
+        });
+
+        // Auto-hide control bar in fullscreen
+        document.addEventListener('mousemove', (e) => {
+            if (isFullscreen && e.clientY < 60) {
+                controlBar.classList.add('show');
+                clearTimeout(hideControlBarTimeout);
+                hideControlBarTimeout = setTimeout(() => {
+                    if (isFullscreen) {
+                        controlBar.classList.remove('show');
+                    }
+                }, 2000);
+            }
+        });
+
+        // Auto-initialization
+        async function init() {
+            setLoadingStatus('Starting browser engine...');
+            const browserStarted = await startBrowser();
+            
+            if (browserStarted) {
+                setLoadingStatus('Browser started, connecting stream...');
+                await new Promise(r => setTimeout(r, 1000)); // Brief delay for browser to be ready
+                await startStream();
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // Start everything on load
+        window.addEventListener('load', init);
     </script>
 </body>
 
